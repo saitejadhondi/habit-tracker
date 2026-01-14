@@ -1,83 +1,271 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#4f46e5">
-  <title>Focus & Flow | Login</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --primary: #4f46e5;
-      --surface: #ffffff;
-      --bg: #f8fafc;
-      --text: #0f172a;
-      --text-muted: #64748b;
-      --border: #e2e8f0;
-    }
-    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); margin: 0; display: grid; height: 100vh; grid-template-columns: 1fr 1fr; }
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FocusFlow | Secure Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    /* Left Side - Hero */
-    .hero-section { background: var(--primary); color: white; display: flex; flex-direction: column; justify-content: center; padding: 60px; position: relative; overflow: hidden; }
-    .hero-content { z-index: 2; max-width: 480px; }
-    .hero-section h1 { font-size: 3.5rem; line-height: 1.1; margin-bottom: 20px; letter-spacing: -0.02em; }
-    .hero-section p { font-size: 1.25rem; opacity: 0.9; line-height: 1.6; }
-    .hero-bg-pattern { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0.1; background: radial-gradient(circle at 50% 50%, #fff 2px, transparent 2.5px); background-size: 32px 32px; }
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --bg-body: #0f172a;
+            --surface: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --error: #ef4444;
+            --success: #10b981;
+        }
 
-    /* Right Side - Form */
-    .form-section { display: flex; align-items: center; justify-content: center; padding: 40px; background: var(--surface); }
-    .auth-card { width: 100%; max-width: 400px; animation: fadeUp 0.6s ease-out; }
-    
-    h2 { font-size: 1.8rem; margin-bottom: 8px; }
-    .subtitle { color: var(--text-muted); margin-bottom: 32px; display: block; }
-    
-    label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 8px; color: var(--text-muted); }
-    input { width: 100%; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; margin-bottom: 20px; outline: none; transition: 0.2s; background: var(--bg); }
-    input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); background: white; }
-    
-    .btn-primary { width: 100%; background: var(--primary); color: white; padding: 14px; border: none; border-radius: 8px; font-weight: 600; font-size: 1rem; cursor: pointer; transition: 0.2s; }
-    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25); }
-    
-    .btn-secondary { width: 100%; background: transparent; color: var(--text-muted); padding: 14px; border: 1px solid var(--border); border-radius: 8px; font-weight: 500; margin-top: 12px; cursor: pointer; transition: 0.2s; }
-    .btn-secondary:hover { background: var(--bg); color: var(--text); border-color: var(--text-muted); }
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            height: 100vh;
+            display: grid;
+            grid-template-columns: 1fr 1.2fr;
+            overflow: hidden;
+        }
 
-    @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-    
-    @media (max-width: 900px) {
-      body { grid-template-columns: 1fr; }
-      .hero-section { display: none; }
-    }
-  </style>
+        /* --- LEFT PANEL (Visuals) --- */
+        .hero-panel {
+            background: radial-gradient(circle at top right, #4338ca, transparent 40%),
+                        radial-gradient(circle at bottom left, #0f172a, var(--bg-body));
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 80px;
+        }
+        
+        .hero-content { z-index: 10; position: relative; }
+        .hero-title { font-family: 'Outfit', sans-serif; font-size: 4rem; line-height: 1.1; margin-bottom: 24px; background: linear-gradient(to right, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .hero-text { font-size: 1.25rem; color: var(--text-muted); line-height: 1.6; max-width: 500px; }
+        
+        /* Abstract Shapes */
+        .orb { position: absolute; border-radius: 50%; filter: blur(60px); opacity: 0.4; }
+        .orb-1 { width: 300px; height: 300px; background: var(--primary); top: -50px; left: -50px; }
+        .orb-2 { width: 400px; height: 400px; background: #c084fc; bottom: -100px; right: -100px; }
+
+        /* --- RIGHT PANEL (Form) --- */
+        .auth-panel {
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(20px);
+            position: relative;
+        }
+
+        .auth-card {
+            width: 100%; max-width: 420px;
+            padding: 40px;
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        h2 { margin: 0 0 8px 0; font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; }
+        .subtitle { color: var(--text-muted); margin-bottom: 32px; display: block; font-size: 0.95rem; }
+
+        /* Form Elements */
+        .input-group { margin-bottom: 20px; position: relative; }
+        .input-group label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 8px; color: var(--text-muted); }
+        .input-group input {
+            width: 100%; padding: 14px 16px;
+            background: var(--bg-body); border: 1px solid var(--border);
+            border-radius: 12px; color: white; font-size: 1rem;
+            transition: all 0.2s; outline: none;
+        }
+        .input-group input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1); }
+
+        .btn {
+            width: 100%; padding: 14px; border-radius: 12px;
+            font-weight: 600; font-size: 1rem; cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s; border: none;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+        }
+        .btn:active { transform: scale(0.98); }
+        
+        .btn-primary { background: var(--primary); color: white; margin-bottom: 16px; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        
+        .divider { display: flex; align-items: center; color: var(--text-muted); font-size: 0.8rem; margin: 24px 0; }
+        .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+        .divider span { padding: 0 16px; }
+
+        /* Social Auth */
+        .social-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+        .btn-social {
+            background: var(--bg-body); border: 1px solid var(--border); color: var(--text-main);
+            font-weight: 500; font-size: 0.9rem;
+        }
+        .btn-social:hover { border-color: var(--text-muted); background: var(--surface); }
+
+        .links { text-align: center; margin-top: 24px; font-size: 0.9rem; }
+        .link { color: var(--primary); text-decoration: none; cursor: pointer; font-weight: 500; }
+        .link:hover { text-decoration: underline; }
+
+        /* Notifications */
+        .toast {
+            position: fixed; top: 20px; right: 20px;
+            padding: 16px 24px; border-radius: 8px;
+            background: var(--surface); border-left: 4px solid var(--primary);
+            color: white; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            transform: translateX(120%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 100;
+        }
+        .toast.show { transform: translateX(0); }
+        .toast.error { border-color: var(--error); }
+        .toast.success { border-color: var(--success); }
+
+        @media (max-width: 900px) {
+            body { grid-template-columns: 1fr; }
+            .hero-panel { display: none; }
+            .auth-panel { padding: 20px; align-items: flex-start; }
+            .auth-card { margin-top: 40px; }
+        }
+
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
 </head>
 <body>
-  <div class="hero-section">
-    <div class="hero-bg-pattern"></div>
-    <div class="hero-content">
-      <h1>Build habits<br>that actually stick.</h1>
-      <p>Join thousands of users tracking their daily progress, building streaks, and mastering their productivity with Focus & Flow.</p>
+
+    <div id="toast" class="toast">
+        <div id="toastMsg">Notification Message</div>
     </div>
-  </div>
 
-  <div class="form-section">
-    <div class="auth-card">
-      <h2>Welcome back</h2>
-      <span class="subtitle">Enter your details to access your dashboard.</span>
-
-      <label for="email">Email Address</label>
-      <input id="email" type="email" placeholder="name@company.com" required>
-
-      <label for="password">Password</label>
-      <input id="password" type="password" placeholder="••••••••" required>
-
-      <button id="loginBtn" class="btn-primary">Sign In</button>
-      <button id="signupBtn" class="btn-secondary">Create Account</button>
-      
-      <p style="text-align:center; margin-top: 24px; font-size: 12px; color: var(--text-muted);">
-        Secure & Offline-ready technology.
-      </p>
+    <div class="hero-panel">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="hero-content">
+            <h1 class="hero-title">Master your<br>momentum.</h1>
+            <p class="hero-text">Data-driven habit tracking for engineers and builders. Visualize your progress and achieve flow state.</p>
+        </div>
     </div>
-  </div>
 
-<script type="module" src="js/auth.js"></script>
+    <div class="auth-panel">
+        <div class="auth-card">
+            <h2>Welcome back</h2>
+            <span class="subtitle">Sign in to access your dashboard</span>
+
+            <div class="social-grid">
+                <button class="btn btn-social" onclick="handleSocial('google')">
+                    <i class="fa-brands fa-google"></i> Google
+                </button>
+                <button class="btn btn-social" onclick="handleSocial('github')">
+                    <i class="fa-brands fa-github"></i> GitHub
+                </button>
+            </div>
+
+            <div class="divider"><span>OR CONTINUE WITH EMAIL</span></div>
+
+            <form id="authForm" onsubmit="handleLogin(event)">
+                <div class="input-group">
+                    <label>Email Address</label>
+                    <input type="email" id="email" required placeholder="dev@example.com">
+                </div>
+                <div class="input-group">
+                    <label>Password</label>
+                    <input type="password" id="password" required placeholder="••••••••">
+                    <div style="text-align: right; margin-top: 8px;">
+                        <a onclick="forgotPassword()" class="link" style="font-size: 0.8rem;">Forgot password?</a>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary" id="submitBtn">
+                    <span>Sign In</span> <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </form>
+
+            <div class="links">
+                <span style="color: var(--text-muted)">Don't have an account?</span>
+                <a onclick="toggleMode()" class="link" id="toggleLink">Create Account</a>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { supabase } from "./js/habits.js"; // Importing standard instance
+
+        window.isSignUp = false;
+
+        // --- Auth Logic ---
+        
+        window.handleLogin = async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('submitBtn');
+            
+            setLoading(true);
+
+            try {
+                if (window.isSignUp) {
+                    const { error } = await supabase.auth.signUp({ email, password });
+                    if (error) throw error;
+                    showToast('Account created! Please check your email.', 'success');
+                } else {
+                    const { error } = await supabase.auth.signInWithPassword({ email, password });
+                    if (error) throw error;
+                    window.location.href = 'dashboard.html';
+                }
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        window.handleSocial = async (provider) => {
+            try {
+                const { error } = await supabase.auth.signInWithOAuth({
+                    provider: provider,
+                    options: { redirectTo: window.location.origin + '/dashboard.html' }
+                });
+                if (error) throw error;
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+
+        window.forgotPassword = async () => {
+            const email = prompt("Enter your email address to reset password:");
+            if (!email) return;
+            
+            try {
+                const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                    redirectTo: window.location.origin + '/dashboard.html?reset=true',
+                });
+                if (error) throw error;
+                showToast('Password reset link sent to your email.', 'success');
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+
+        // --- UI Helpers ---
+
+        window.toggleMode = () => {
+            window.isSignUp = !window.isSignUp;
+            document.querySelector('h2').textContent = window.isSignUp ? 'Create Account' : 'Welcome back';
+            document.getElementById('submitBtn').innerHTML = window.isSignUp ? 'Create Account' : '<span>Sign In</span> <i class="fa-solid fa-arrow-right"></i>';
+            document.getElementById('toggleLink').textContent = window.isSignUp ? 'Sign In' : 'Create Account';
+        };
+
+        function setLoading(isLoading) {
+            const btn = document.getElementById('submitBtn');
+            btn.style.opacity = isLoading ? '0.7' : '1';
+            btn.innerHTML = isLoading ? '<i class="fa-solid fa-circle-notch fa-spin"></i> Processing' : (window.isSignUp ? 'Create Account' : '<span>Sign In</span> <i class="fa-solid fa-arrow-right"></i>');
+        }
+
+        function showToast(msg, type = 'normal') {
+            const t = document.getElementById('toast');
+            const m = document.getElementById('toastMsg');
+            m.textContent = msg;
+            t.className = `toast show ${type}`;
+            setTimeout(() => t.classList.remove('show'), 3000);
+        }
+    </script>
 </body>
 </html>

@@ -1,341 +1,754 @@
-import { supabase } from "./supabase.js";
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-// --- State ---
-const state = {
-    habits: [],
-    user: null,
-    xp: 0,
-    level: 1,
-    timer: null,
-    timeLeft: 25 * 60,
-    isTimerRunning: false
+// --- CONFIGURATION ---
+const SUPABASE_URL = "https://ogaarunnqtyyykfbcvoz.supabase.co"; 
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9nYWFydW5ucXR5eXlrZmJjdm96Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzOTc2MjIsImV4cCI6MjA4Mzk3MzYyMn0.X2IWwzXJqSEaIi2uEQm-rFFT-Kzqd24MrAnuHPfN5NU";
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Audio Assets
+const SOUNDS = {
+    rain: new Audio('https://cdn.pixabay.com/audio/2022/07/04/audio_34b076b678.mp3'),
+    forest: new Audio('https://cdn.pixabay.com/audio/2021/09/06/audio_0316694793.mp3'),
+    cafe: new Audio('https://cdn.pixabay.com/audio/2017/08/07/22/04/people-2609055_1280.mp3')
 };
+Object.values(SOUNDS).forEach(s => s.loop = true);
 
-// --- Init ---
-document.addEventListener('DOMContentLoaded', async () => {
-    initTheme();
-    updateDate();
-    
-    // Check Auth
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-        window.location.href = 'index.html';
-        return;
-    }
-    state.user = user;
-    
-    // Load Data
-    await loadUserData();
-    setupListeners();
-});
-
-// --- Core Logic ---
-
-async function loadUserData() {
-    // Parallel fetch for speed
-    const [habitsRes, profileRes] = await Promise.all([
-        supabase.from("habits").select("*").order('created_at', { ascending: true }),
-        supabase.from("profiles").select("xp").eq('id', state.user.id).single()
-    ]);
-
-    state.habits = habitsRes.data || [];
-    state.xp = profileRes.data?.xp || 0;
-    
-    calculateLevel();
-    renderAll();
-}
-
-function calculateLevel() {
-    // Simple formula: Level = floor(sqrt(XP / 10)) + 1
-    // or just 100 XP per level for simplicity
-    const xpPerLevel = 100;
-    state.level = Math.floor(state.xp / xpPerLevel) + 1;
-    const progress = (state.xp % xpPerLevel) / xpPerLevel * 100;
-
-    document.getElementById('userLevel').textContent = state.level;
-    document.getElementById('xpText').textContent = `${state.xp % xpPerLevel} / ${xpPerLevel} XP`;
-    document.getElementById('xpFill').style.width = `${progress}%`;
-}
-
-window.addHabit = async function() {
-    const input = document.getElementById('habitInput');
-    const catSelect = document.getElementById('catSelect');
-    const title = input.value.trim();
-    
-    if (!title) return;
-
-    // Optimistic UI Update
-    const tempId = Date.now();
-    const newHabit = { 
-        id: tempId, 
-        title, 
-        category: catSelect.value, 
-        completed_dates: [], 
-        user_id: state.user.id 
-    };
-    
-    state.habits.push(newHabit);
-    renderHabits();
-    input.value = '';
-
-    const { data, error } = await supabase.from('habits').insert([{ 
-        title, 
-        user_id: state.user.id, 
-        category: catSelect.value,
-        completed_dates: [] 
-    }]).select();
-
-    if (!error && data) {
-        // Replace temp ID with real one
-        const index = state.habits.findIndex(h => h.id === tempId);
-        if (index !== -1) state.habits[index] = data[0];
-    }
-};
-
-window.toggleHabit = async function(id) {
-    const habit = state.habits.find(h => h.id == id);
-    if (!habit) return;
-
-    const today = new Date().toISOString().split('T')[0];
-    let dates = [...(habit.completed_dates || [])];
-    const isCompleting = !dates.includes(today);
-
-    // Haptics for mobile
-    if (navigator.vibrate) navigator.vibrate(50);
-
-    if (isCompleting) {
-        dates.push(today);
-        triggerConfetti();
-        await addXP(10); // Reward for completion
-    } else {
-        dates = dates.filter(d => d !== today);
-        await addXP(-10); // Penalty for unchecking (optional)
+class App {
+    constructor() {
+        this.state = {
+            user: null,
+            habits: [],
+            journal: "",
+            charts: {}, // Store chart instances here
+            xp: 0,
+            activeSound: null,
+            zenMode: false,
+            timer: {
+                interval: null,
+                timeLeft: 25 * 60,
+                totalTime: 25 * 60,
+                isRunning: false,
+                mode: 'pomodoro',
+                sessionsToday: 0
+            },
+            badges: [
+                { id: 'early_bird', icon: 'fa-sun', label: 'Early Bird', desc: 'Complete a habit before 8AM', unlocked: false },
+                { id: 'streak_7', icon: 'fa-fire', label: '7 Day Streak', desc: 'Reach a 7 day streak', unlocked: false },
+                { id: 'focus_master', icon: 'fa-brain', label: 'Focus Pro', desc: 'Complete 4 Pomodoros in a day', unlocked: false },
+                { id: 'zen_master', icon: 'fa-om', label: 'Zen Master', desc: 'Reach Level 5', unlocked: false }
+            ]
+        };
     }
 
-    habit.completed_dates = dates;
-    renderAll();
-
-    await supabase.from('habits').update({ completed_dates: dates }).eq('id', id);
-};
-
-async function addXP(amount) {
-    state.xp = Math.max(0, state.xp + amount);
-    calculateLevel();
-    // Debounce save or just save immediately
-    await supabase.from('profiles').upsert({ id: state.user.id, xp: state.xp });
-}
-
-window.deleteHabit = async function(id) {
-    if(!confirm("Remove this habit?")) return;
-    state.habits = state.habits.filter(h => h.id != id);
-    renderAll();
-    await supabase.from('habits').delete().eq('id', id);
-};
-
-// --- Rendering ---
-
-function renderAll() {
-    renderHabits();
-    renderHeatmap();
-    renderStats();
-    renderAnalyticsChart();
-}
-
-function renderHabits() {
-    const list = document.getElementById('habitList');
-    list.innerHTML = '';
-    const today = new Date().toISOString().split('T')[0];
-
-    state.habits.forEach(h => {
-        const isCompleted = (h.completed_dates || []).includes(today);
-        const li = document.createElement('li');
-        li.className = `habit-item ${isCompleted ? 'completed' : ''}`;
-        li.innerHTML = `
-            <div style="display:flex; align-items:center; flex:1;">
-                <div class="check-box" onclick="window.toggleHabit('${h.id}')">
-                    ${isCompleted ? '<i class="fa-solid fa-check"></i>' : ''}
-                </div>
-                <div style="display:flex; flex-direction:column;">
-                    <span class="habit-text" style="font-weight:600;">${escapeHTML(h.title)}</span>
-                    <span style="font-size:0.75rem; color:var(--text-muted);">${calculateStreak(h.completed_dates)} day streak</span>
-                </div>
-            </div>
-            <span class="tag">${h.category || 'General'}</span>
-            <button onclick="window.deleteHabit('${h.id}')" style="background:none; border:none; color:var(--text-muted); cursor:pointer; margin-left:10px;"><i class="fa-solid fa-trash"></i></button>
-        `;
-        list.appendChild(li);
-    });
-}
-
-function renderHeatmap() {
-    const grid = document.getElementById('miniHeatmap');
-    grid.innerHTML = '';
-    const today = new Date();
-    
-    // Show last 14 days for mini heatmap
-    for (let i = 13; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(today.getDate() - i);
-        const iso = d.toISOString().split('T')[0];
+    async init() {
+        const { data: { session } } = await supabase.auth.getSession();
         
-        let completedCount = 0;
-        state.habits.forEach(h => {
-            if ((h.completed_dates || []).includes(iso)) completedCount++;
+        if (!session && !window.location.href.includes('index.html')) {
+            window.location.href = 'index.html';
+            return;
+        }
+
+        if (session) {
+            this.state.user = session.user;
+            this.applyTheme(session.user);
+            this.updateDate();
+            await this.loadData();
+            await this.loadJournal();
+            this.updateTimerDisplay();
+        }
+        
+        // Setup Chart Defaults
+        Chart.defaults.color = '#a1a1aa';
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.borderColor = '#27272a';
+    }
+
+    // --- DATA LOADING ---
+
+    async loadData() {
+        try {
+            const { data, error } = await supabase
+                .from("habits")
+                .select("*")
+                .eq('user_id', this.state.user.id)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            this.state.habits = data || [];
+            this.recalcStats();
+            this.renderAll();
+        } catch (err) {
+            console.error('Data load error', err);
+        }
+    }
+
+    async loadJournal() {
+        const today = new Date().toISOString().split('T')[0];
+        const savedJournal = this.state.user.user_metadata?.journal?.[today] || "";
+        const el = document.getElementById('dailyJournal');
+        if(el) el.value = savedJournal;
+    }
+
+    // --- CORE FEATURES ---
+
+    async addHabit(title, category) {
+        if (!title.trim()) return;
+        const input = document.getElementById('habitInput');
+        input.value = '';
+
+        const newHabit = {
+            title: title,
+            category: category || 'General',
+            user_id: this.state.user.id,
+            completed_dates: []
+        };
+
+        const tempId = Date.now();
+        this.state.habits.unshift({ ...newHabit, id: tempId });
+        this.renderAll();
+
+        const { data, error } = await supabase.from('habits').insert([newHabit]).select();
+        
+        if(data) {
+            const idx = this.state.habits.findIndex(h => h.id === tempId);
+            if(idx !== -1) this.state.habits[idx] = data[0];
+            this.showToast('Habit added', 'success');
+        } else {
+            this.showToast('Error adding habit', 'error');
+        }
+    }
+
+    async toggle(id) {
+        const habit = this.state.habits.find(h => h.id === id);
+        if (!habit) return;
+
+        const today = new Date().toISOString().split('T')[0];
+        const dates = habit.completed_dates || [];
+        const isCompletedToday = dates.includes(today);
+
+        let newDates;
+        if (isCompletedToday) {
+            newDates = dates.filter(d => d !== today);
+            this.state.xp -= 10;
+        } else {
+            newDates = [...dates, today];
+            this.state.xp += 10;
+            this.checkEarlyBirdBadge();
+            confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 }, colors: ['#6366f1', '#14b8a6'] });
+        }
+
+        habit.completed_dates = newDates;
+        this.recalcStats();
+        this.renderAll();
+
+        await supabase.from('habits').update({ completed_dates: newDates }).eq('id', id);
+    }
+
+    // --- STATS & BADGES ---
+
+    recalcStats() {
+        let totalCompletions = 0;
+        this.state.habits.forEach(h => totalCompletions += (h.completed_dates || []).length);
+        this.state.xp = totalCompletions * 15;
+
+        const maxStreak = Math.max(0, ...this.state.habits.map(h => this.calculateStreakForHabit(h)));
+        const level = Math.floor(this.state.xp / 100) + 1;
+
+        if (maxStreak >= 7) this.unlockBadge('streak_7');
+        if (level >= 5) this.unlockBadge('zen_master');
+        if (this.state.timer.sessionsToday >= 4) this.unlockBadge('focus_master');
+    }
+
+    unlockBadge(id) {
+        const badge = this.state.badges.find(b => b.id === id);
+        if (badge && !badge.unlocked) {
+            badge.unlocked = true;
+            this.showToast(`🏆 Badge Unlocked: ${badge.label}!`, 'success');
+        }
+    }
+
+    checkEarlyBirdBadge() {
+        const hr = new Date().getHours();
+        if (hr < 8) this.unlockBadge('early_bird');
+    }
+
+    calculateStreakForHabit(habit) {
+        const dates = new Set(habit.completed_dates || []);
+        if (dates.size === 0) return 0;
+        
+        let streak = 0;
+        let d = new Date();
+        const today = d.toISOString().split('T')[0];
+        
+        if (dates.has(today)) {
+            streak = 1;
+            d.setDate(d.getDate() - 1);
+        } else {
+            // Check yesterday
+            const yesterday = new Date(Date.now() - 86400000);
+            if (!dates.has(yesterday.toISOString().split('T')[0])) return 0;
+            streak = 0; // We start counting from yesterday in loop
+            d = yesterday;
+        }
+
+        while (dates.has(d.toISOString().split('T')[0])) {
+            streak++;
+            d.setDate(d.getDate() - 1);
+        }
+        return streak > 0 && dates.has(today) ? streak : streak - 1 + (dates.has(today)?1:0); 
+    }
+
+    // --- RENDERING ---
+
+    renderAll() {
+        this.renderHabits();
+        this.renderMetrics();
+        // Charts only render if the view is active to save resources
+        if(document.getElementById('view-analytics').classList.contains('active')){
+            this.renderCharts();
+        }
+    }
+
+    renderHabits() {
+        const list = document.getElementById('habitList');
+        if(!list) return;
+        list.innerHTML = '';
+        const today = new Date().toISOString().split('T')[0];
+
+        this.state.habits.forEach(h => {
+            const isDone = (h.completed_dates || []).includes(today);
+            const streak = this.calculateStreakForHabit(h);
+            const el = document.createElement('div');
+            el.className = `habit-item ${isDone ? 'done' : ''}`;
+            
+            el.innerHTML = `
+                <div class="checkbox" onclick="event.stopPropagation(); window.app.toggle(${h.id})">
+                    ${isDone ? '<i class="fa-solid fa-check"></i>' : ''}
+                </div>
+                <div class="habit-text" onclick="window.app.openHabitDetails(${h.id})">${h.title}</div>
+                <div class="habit-meta" onclick="window.app.openHabitDetails(${h.id})">
+                    ${streak > 2 ? `<div class="streak-pill"><i class="fa-solid fa-fire"></i> ${streak}</div>` : ''}
+                    <div class="category-dot" style="background: ${this.getCategoryColor(h.category)}"></div>
+                </div>
+            `;
+            list.appendChild(el);
+        });
+    }
+
+    renderMetrics() {
+        const level = Math.floor(this.state.xp / 100) + 1;
+        const progress = this.state.xp % 100;
+        const elLevel = document.getElementById('levelVal');
+        if(elLevel) elLevel.textContent = level;
+        const elBar = document.getElementById('xpBar');
+        if(elBar) elBar.style.width = `${progress}%`;
+
+        const today = new Date().toISOString().split('T')[0];
+        const active = this.state.habits.filter(h => (h.completed_dates || []).includes(today)).length;
+        const total = this.state.habits.length;
+        
+        const rateEl = document.getElementById('completionRate');
+        if(rateEl) rateEl.textContent = total === 0 ? '0%' : Math.round((active/total)*100) + '%';
+        
+        const maxStreak = Math.max(0, ...this.state.habits.map(h => this.calculateStreakForHabit(h)));
+        const streakEl = document.getElementById('streakVal');
+        if(streakEl) streakEl.textContent = maxStreak;
+        const bestEl = document.getElementById('bestStreak');
+        if(bestEl) bestEl.textContent = maxStreak;
+
+        this.renderBadges();
+    }
+
+    renderBadges() {
+        const grid = document.getElementById('dashboardBadges');
+        if(!grid) return;
+        grid.innerHTML = '';
+        this.state.badges.forEach(b => {
+            const div = document.createElement('div');
+            div.className = `badge ${b.unlocked ? 'unlocked' : ''}`;
+            div.title = b.desc;
+            div.innerHTML = `<i class="fa-solid ${b.icon}"></i><span>${b.label}</span>`;
+            grid.appendChild(div);
+        });
+    }
+
+    openHabitDetails(id) {
+        const habit = this.state.habits.find(h => h.id === id);
+        if(!habit) return;
+
+        document.getElementById('habitModal').style.display = 'flex';
+        document.getElementById('modalHabitTitle').textContent = habit.title;
+        document.getElementById('modalStreak').textContent = this.calculateStreakForHabit(habit);
+        
+        const cal = document.getElementById('modalCalendar');
+        cal.innerHTML = '';
+        const dates = new Set(habit.completed_dates || []);
+        
+        ['S','M','T','W','T','F','S'].forEach(d => {
+            cal.innerHTML += `<div class="cal-day-header">${d}</div>`;
         });
 
-        const total = state.habits.length;
-        let level = 0;
-        if (total > 0 && completedCount > 0) {
-            const ratio = completedCount / total;
-            if (ratio === 1) level = 3;
-            else if (ratio >= 0.5) level = 2;
-            else level = 1;
-        }
-
-        const box = document.createElement('div');
-        box.className = 'heat-box';
-        box.setAttribute('data-level', level);
-        box.title = `${iso}: ${completedCount}/${total}`;
-        grid.appendChild(box);
-    }
-}
-
-function renderStats() {
-    // Global Streak
-    const today = new Date().toISOString().split('T')[0];
-    const activeHabits = state.habits.filter(h => (h.completed_dates || []).includes(today)).length;
-    document.getElementById('streakVal').textContent = activeHabits; // Simplification for now
-
-    // Completion Rate (Last 7 Days)
-    let totalOpp = state.habits.length * 7;
-    let totalDone = 0;
-    if (totalOpp > 0) {
-        for(let i=0; i<7; i++) {
+        for(let i=29; i>=0; i--) {
             const d = new Date(); d.setDate(d.getDate() - i);
             const iso = d.toISOString().split('T')[0];
-            state.habits.forEach(h => {
-                if((h.completed_dates || []).includes(iso)) totalDone++;
+            const isDone = dates.has(iso);
+            const isToday = iso === new Date().toISOString().split('T')[0];
+            
+            const div = document.createElement('div');
+            div.className = `cal-day ${isDone ? 'active' : ''} ${isToday ? 'today' : ''}`;
+            div.textContent = d.getDate();
+            cal.appendChild(div);
+        }
+        document.getElementById('btnDeleteHabit').onclick = () => this.deleteHabit(id);
+    }
+
+    // --- PRO ANALYTICS (Charts & Insights) ---
+
+    renderCharts() {
+        // Clear existing chart instances to avoid memory leaks
+        Object.values(this.state.charts).forEach(c => c.destroy());
+
+        this.renderTrendChart();
+        this.renderCategoryChart();
+        this.renderDayPerformanceChart();
+        this.renderRadarChart();
+        this.renderHeatmap();
+        this.generateInsights();
+        this.renderStatCards();
+    }
+
+    renderTrendChart() {
+        const ctx = document.getElementById('trendChart');
+        if(!ctx) return;
+
+        // Last 14 days
+        const labels = [];
+        const dataPoints = [];
+        for(let i=13; i>=0; i--) {
+            const d = new Date(); d.setDate(d.getDate() - i);
+            const iso = d.toISOString().split('T')[0];
+            labels.push(d.toLocaleDateString('en-US', {weekday:'short'}));
+            
+            let completed = 0;
+            this.state.habits.forEach(h => { if((h.completed_dates||[]).includes(iso)) completed++; });
+            const total = this.state.habits.length || 1;
+            dataPoints.push(Math.round((completed/total)*100));
+        }
+
+        // Gradient
+        const gradient = ctx.getContext('2d').createLinearGradient(0, 0, 0, 400);
+        gradient.addColorStop(0, 'rgba(99, 102, 241, 0.5)'); // Primary color
+        gradient.addColorStop(1, 'rgba(99, 102, 241, 0.0)');
+
+        this.state.charts.trend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Completion Rate %',
+                    data: dataPoints,
+                    borderColor: '#6366f1',
+                    backgroundColor: gradient,
+                    fill: true,
+                    tension: 0.4,
+                    pointBackgroundColor: '#09090b',
+                    pointBorderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+                scales: {
+                    y: { min: 0, max: 100, grid: { color: '#27272a' } },
+                    x: { grid: { display: false } }
+                }
+            }
+        });
+
+        // Simple math for "Vs Last Week"
+        const thisWeek = dataPoints.slice(7).reduce((a,b)=>a+b,0)/7;
+        const lastWeek = dataPoints.slice(0,7).reduce((a,b)=>a+b,0)/7;
+        const diff = Math.round(thisWeek - lastWeek);
+        const el = document.getElementById('trendValue');
+        if(el) {
+            el.textContent = `${diff > 0 ? '+' : ''}${diff}%`;
+            el.parentElement.style.color = diff >= 0 ? 'var(--success)' : 'var(--danger)';
+        }
+    }
+
+    renderCategoryChart() {
+        const ctx = document.getElementById('categoryChart');
+        if(!ctx) return;
+
+        const counts = {};
+        this.state.habits.forEach(h => {
+            const c = h.category;
+            const completions = (h.completed_dates||[]).length;
+            counts[c] = (counts[c] || 0) + completions;
+        });
+
+        const labels = Object.keys(counts);
+        const data = Object.values(counts);
+        const colors = labels.map(l => this.getCategoryColor(l));
+
+        this.state.charts.category = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: data,
+                    backgroundColor: colors,
+                    borderWidth: 0,
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '75%',
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        // Custom Legend
+        const legend = document.getElementById('catLegend');
+        if(legend) {
+            legend.innerHTML = labels.map((l, i) => `
+                <div style="display:flex;align-items:center;gap:6px;font-size:0.8rem;">
+                    <div style="width:8px;height:8px;border-radius:50%;background:${colors[i]}"></div>
+                    ${l}
+                </div>
+            `).join('');
+        }
+    }
+
+    renderDayPerformanceChart() {
+        const ctx = document.getElementById('dayBarChart');
+        if(!ctx) return;
+
+        // Aggregating by Day of Week (0=Sun)
+        const dayCounts = [0,0,0,0,0,0,0];
+        this.state.habits.forEach(h => {
+            (h.completed_dates||[]).forEach(iso => {
+                const day = new Date(iso).getDay();
+                dayCounts[day]++;
             });
-        }
-        const rate = Math.round((totalDone / totalOpp) * 100);
-        document.getElementById('completionRate').textContent = `${rate}%`;
+        });
+
+        this.state.charts.days = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+                datasets: [{
+                    label: 'Total Habits Done',
+                    data: dayCounts,
+                    backgroundColor: '#14b8a6',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { display: false },
+                    x: { grid: { display: false } }
+                }
+            }
+        });
     }
-}
 
-// --- Focus Timer ---
-window.startTimer = function() {
-    if (state.isTimerRunning) return;
-    state.isTimerRunning = true;
-    document.getElementById('timerDisplay').classList.add('timer-active');
-    
-    state.timer = setInterval(() => {
-        state.timeLeft--;
-        updateTimerDisplay();
-        if (state.timeLeft <= 0) {
-            clearInterval(state.timer);
-            state.isTimerRunning = false;
-            document.getElementById('timerDisplay').classList.remove('timer-active');
-            alert("Focus session complete! Take a break.");
-            addXP(50); // Big reward for focus
-        }
-    }, 1000);
-}
+    renderRadarChart() {
+        const ctx = document.getElementById('radarChart');
+        if(!ctx) return;
 
-window.resetTimer = function() {
-    clearInterval(state.timer);
-    state.isTimerRunning = false;
-    state.timeLeft = 25 * 60;
-    updateTimerDisplay();
-    document.getElementById('timerDisplay').classList.remove('timer-active');
-}
+        // Just mapping individual habit strength based on streak
+        const labels = this.state.habits.slice(0, 6).map(h => h.title); // Top 6
+        const data = this.state.habits.slice(0, 6).map(h => this.calculateStreakForHabit(h));
 
-function updateTimerDisplay() {
-    const m = Math.floor(state.timeLeft / 60).toString().padStart(2, '0');
-    const s = (state.timeLeft % 60).toString().padStart(2, '0');
-    document.getElementById('timerDisplay').textContent = `${m}:${s}`;
-}
-
-// --- Utils ---
-function triggerConfetti() {
-    confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#4f46e5', '#818cf8', '#ffffff'] });
-}
-
-function calculateStreak(dates) {
-    if(!dates || !dates.length) return 0;
-    // (Logic same as before, omitted for brevity)
-    return dates.length; 
-}
-
-function escapeHTML(str) {
-    return str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag]));
-}
-
-window.switchTab = function(tab) {
-    document.querySelectorAll('[id^="view"]').forEach(el => el.style.display = 'none');
-    document.getElementById(`view${tab.charAt(0).toUpperCase() + tab.slice(1)}`).style.display = 'grid'; // or block based on view
-    
-    if(tab === 'analytics') renderAnalyticsChart();
-    
-    // Update active nav
-    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-    // (Add active class logic here based on click target)
-};
-
-window.toggleTheme = function() {
-    const body = document.body;
-    const isDark = body.getAttribute('data-theme') === 'dark';
-    body.setAttribute('data-theme', isDark ? 'light' : 'dark');
-    document.getElementById('themeIcon').className = isDark ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
-};
-
-window.logout = async function() {
-    await supabase.auth.signOut();
-    window.location.href = 'index.html';
-};
-
-function initTheme() {
-    // System preference check
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        document.body.setAttribute('data-theme', 'dark');
-        document.getElementById('themeIcon').className = 'fa-solid fa-sun';
+        this.state.charts.radar = new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Current Streak',
+                    data: data,
+                    backgroundColor: 'rgba(244, 63, 94, 0.2)',
+                    borderColor: '#f43f5e',
+                    pointBackgroundColor: '#f43f5e'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    r: {
+                        angleLines: { color: '#27272a' },
+                        grid: { color: '#27272a' },
+                        pointLabels: { color: '#a1a1aa', font: {size: 10} },
+                        ticks: { display: false, backdropColor: 'transparent' }
+                    }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
     }
-}
 
-function updateDate() {
-    const d = new Date();
-    const opts = { weekday: 'long', month: 'long', day: 'numeric' };
-    document.getElementById('dateDisplay').textContent = d.toLocaleDateString('en-US', opts);
-}
+    renderHeatmap() {
+        const container = document.getElementById('analyticsHeatmap');
+        if(!container) return;
+        container.innerHTML = '';
+        
+        // 365 Days
+        for(let i=364; i>=0; i--) {
+            const d = new Date(); d.setDate(d.getDate() - i);
+            const iso = d.toISOString().split('T')[0];
+            
+            // Count total completions for this day
+            let count = 0;
+            this.state.habits.forEach(h => {
+                if((h.completed_dates||[]).includes(iso)) count++;
+            });
 
-function renderAnalyticsChart() {
-    const ctx = document.getElementById('mainChart');
-    if (!ctx) return;
-    // Chart.js implementation (simplified)
-    // Needs global variable to destroy old chart instance
-    if (window.myChart) window.myChart.destroy();
-    
-    window.myChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-            datasets: [{
-                label: 'Habits Completed',
-                data: [12, 19, 3, 5, 2, 3, 9], // Replace with real data
-                backgroundColor: '#4f46e5',
-                borderRadius: 4
-            }]
-        },
-        options: {
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                y: { grid: { display: false } },
-                x: { grid: { display: false } }
+            // Opacity logic
+            let color = '#27272a';
+            if(count > 0) color = `rgba(99, 102, 241, ${Math.min(0.3 + (count * 0.15), 1)})`;
+            if(count >= 5) color = '#6366f1'; // Max intensity
+
+            const cell = document.createElement('div');
+            cell.className = 'heatmap-cell';
+            cell.style.backgroundColor = color;
+            cell.title = `${d.toDateString()}: ${count} habits`;
+            container.appendChild(cell);
+        }
+    }
+
+    renderStatCards() {
+        // Calculate Total Completions
+        let total = 0;
+        this.state.habits.forEach(h => total += (h.completed_dates||[]).length);
+        const elTotal = document.getElementById('statTotalCompletions');
+        if(elTotal) elTotal.textContent = total;
+
+        // Calculate "Perfect Days" (where all habits were done)
+        const dateCounts = {};
+        this.state.habits.forEach(h => {
+            (h.completed_dates||[]).forEach(d => {
+                dateCounts[d] = (dateCounts[d] || 0) + 1;
+            });
+        });
+        const habitCount = this.state.habits.length;
+        let perfect = 0;
+        Object.values(dateCounts).forEach(c => { if(c >= habitCount && habitCount > 0) perfect++; });
+        
+        const elPerfect = document.getElementById('statPerfectDays');
+        if(elPerfect) elPerfect.textContent = perfect;
+    }
+
+    generateInsights() {
+        const el = document.getElementById('aiSuggestion');
+        if(!el) return;
+
+        if(this.state.habits.length === 0) {
+            el.textContent = "Start by adding your first habit to generate insights.";
+            return;
+        }
+
+        // Logic to find patterns
+        const dayCounts = [0,0,0,0,0,0,0];
+        let totalDone = 0;
+        this.state.habits.forEach(h => {
+            (h.completed_dates||[]).forEach(iso => {
+                dayCounts[new Date(iso).getDay()]++;
+                totalDone++;
+            });
+        });
+
+        const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+        const bestDayIndex = dayCounts.indexOf(Math.max(...dayCounts));
+        const worstDayIndex = dayCounts.indexOf(Math.min(...dayCounts));
+
+        // Randomize insight type
+        const type = Math.floor(Math.random() * 3);
+
+        if (totalDone < 5) {
+            el.textContent = "Data is limited. Keep logging for 3 days to see patterns.";
+        } else if (type === 0) {
+            el.textContent = `You are most productive on ${days[bestDayIndex]}s. Try tackling hard tasks then.`;
+        } else if (type === 1) {
+            el.textContent = `${days[worstDayIndex]}s seem tough for you. Maybe reduce the load or start smaller?`;
+        } else {
+            const streak = document.getElementById('streakVal').textContent;
+            el.textContent = `You're on a ${streak} day streak. Consistency beats intensity every time.`;
+        }
+    }
+
+    // --- UTILS ---
+
+    toggleZenMode() {
+        this.state.zenMode = !this.state.zenMode;
+        if(this.state.zenMode) {
+            document.querySelector('.sidebar').style.transform = 'translateX(-100%)';
+            document.querySelector('.header').style.display = 'none';
+        } else {
+            document.querySelector('.sidebar').style.transform = 'translateX(0)';
+            document.querySelector('.header').style.display = 'flex';
+        }
+    }
+
+    async saveJournal() {
+        const text = document.getElementById('dailyJournal').value;
+        const today = new Date().toISOString().split('T')[0];
+        const newMeta = { ...this.state.user.user_metadata, journal: { [today]: text } };
+        await supabase.auth.updateUser({ data: newMeta });
+        this.showToast('Journal Saved', 'success');
+    }
+
+    async deleteHabit(id) {
+        if(!confirm('Permanently delete?')) return;
+        await supabase.from('habits').delete().eq('id', id);
+        this.state.habits = this.state.habits.filter(h => h.id !== id);
+        document.getElementById('habitModal').style.display = 'none';
+        this.renderAll();
+    }
+
+    async updateUserProfile() {
+        const name = document.getElementById('userName').value;
+        const avatar = document.getElementById('avatarUrl').value;
+        const color = document.getElementById('selectedColor').value;
+        
+        await supabase.auth.updateUser({ data: { full_name: name, avatar_url: avatar, theme_color: color }});
+        this.showToast('Profile Updated', 'success');
+        document.getElementById('profileModal').style.display = 'none';
+        window.location.reload();
+    }
+
+    async logout() {
+        await supabase.auth.signOut();
+        window.location.href = 'index.html';
+    }
+
+    updateDate() {
+        const d = new Date();
+        document.getElementById('dateDisplay').textContent = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        const quotes = ["Make it happen.", "Focus on the process.", "One step at a time.", "Deep work wins."];
+        document.getElementById('quote').textContent = quotes[Math.floor(Math.random()*quotes.length)];
+    }
+
+    getCategoryColor(cat) {
+        const map = { 'Health': '#14b8a6', 'Work': '#6366f1', 'Growth': '#f59e0b', 'Creativity': '#ec4899' };
+        return map[cat] || '#a1a1aa';
+    }
+
+    applyTheme(user) {
+        const meta = user.user_metadata || {};
+        if(meta.theme_color) window.selectColor(meta.theme_color);
+        if(meta.avatar_url) window.previewAvatar(meta.avatar_url);
+        if(meta.full_name) document.getElementById('greeting').textContent = `Hello, ${meta.full_name.split(' ')[0]}`;
+        
+        document.getElementById('userName').value = meta.full_name || '';
+        document.getElementById('avatarUrl').value = meta.avatar_url || '';
+    }
+
+    switchView(view) {
+        document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        document.getElementById(`view-${view}`).classList.add('active');
+        document.getElementById(`nav-${view}`).classList.add('active');
+        
+        // Trigger chart render if switching to analytics
+        if(view === 'analytics') {
+            setTimeout(() => this.renderCharts(), 50);
+        }
+    }
+
+    showToast(msg, type='normal') {
+        const t = document.getElementById('toast');
+        document.getElementById('toastMsg').textContent = msg;
+        t.style.borderLeftColor = type === 'error' ? 'var(--danger)' : 'var(--success)';
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    // Timer functions
+    toggleSound(type, btn) {
+        if (this.state.activeSound) {
+            this.state.activeSound.pause();
+            this.state.activeSound.currentTime = 0;
+            document.querySelectorAll('.sound-btn').forEach(b => b.classList.remove('active'));
+            if (this.state.activeType === type) {
+                this.state.activeSound = null;
+                this.state.activeType = null;
+                return;
             }
         }
-    });
+        this.state.activeSound = SOUNDS[type];
+        this.state.activeType = type;
+        this.state.activeSound.play();
+        btn.classList.add('active');
+    }
+
+    setTimerMode(minutes, mode, btn) {
+        this.stopTimer();
+        this.state.timer.mode = mode;
+        this.state.timer.timeLeft = minutes * 60;
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        if(btn) btn.classList.add('active');
+        this.updateTimerDisplay();
+        document.getElementById('timerLabel').textContent = mode === 'pomodoro' ? 'DEEP FOCUS' : 'RECHARGE';
+    }
+
+    toggleTimer() {
+        if(this.state.timer.isRunning) this.stopTimer();
+        else this.startTimer();
+    }
+
+    startTimer() {
+        this.state.timer.isRunning = true;
+        document.getElementById('startBtn').innerHTML = 'PAUSE';
+        this.state.timer.interval = setInterval(() => {
+            this.state.timer.timeLeft--;
+            this.updateTimerDisplay();
+            if(this.state.timer.timeLeft <= 0) this.completeTimer();
+        }, 1000);
+    }
+
+    stopTimer() {
+        this.state.timer.isRunning = false;
+        clearInterval(this.state.timer.interval);
+        document.getElementById('startBtn').innerHTML = 'START FOCUS';
+    }
+
+    resetTimer() {
+        this.stopTimer();
+        this.state.timer.timeLeft = 25 * 60;
+        this.updateTimerDisplay();
+    }
+
+    completeTimer() {
+        this.stopTimer();
+        const audio = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+        audio.play();
+        if(this.state.timer.mode === 'pomodoro') {
+            this.state.timer.sessionsToday++;
+            this.state.xp += 50;
+            this.recalcStats();
+            document.getElementById('totalFocusHours').textContent = (this.state.timer.sessionsToday * 25 / 60).toFixed(1);
+            this.showToast('+50 XP Session Complete!', 'success');
+        }
+        this.resetTimer();
+    }
+
+    updateTimerDisplay() {
+        const m = Math.floor(this.state.timer.timeLeft / 60);
+        const s = this.state.timer.timeLeft % 60;
+        document.getElementById('timerDisplay').textContent = `${m}:${s.toString().padStart(2,'0')}`;
+        document.title = this.state.timer.isRunning ? `(${m}:${s}) FocusFlow` : 'FocusFlow Pro';
+    }
 }
 
-function setupListeners() {
-    // Add specific listeners if needed
-}
+const app = new App();
+window.app = app;
+document.addEventListener('DOMContentLoaded', () => app.init());
