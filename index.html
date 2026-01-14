@@ -1,16 +1,82 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Habit Tracker - Login</title>
-  <link rel="stylesheet" href="css/style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#4f46e5">
+  <title>Focus & Flow | Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --surface: #ffffff;
+      --bg: #f8fafc;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+    }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); margin: 0; display: grid; height: 100vh; grid-template-columns: 1fr 1fr; }
+    
+    /* Left Side - Hero */
+    .hero-section { background: var(--primary); color: white; display: flex; flex-direction: column; justify-content: center; padding: 60px; position: relative; overflow: hidden; }
+    .hero-content { z-index: 2; max-width: 480px; }
+    .hero-section h1 { font-size: 3.5rem; line-height: 1.1; margin-bottom: 20px; letter-spacing: -0.02em; }
+    .hero-section p { font-size: 1.25rem; opacity: 0.9; line-height: 1.6; }
+    .hero-bg-pattern { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0.1; background: radial-gradient(circle at 50% 50%, #fff 2px, transparent 2.5px); background-size: 32px 32px; }
+
+    /* Right Side - Form */
+    .form-section { display: flex; align-items: center; justify-content: center; padding: 40px; background: var(--surface); }
+    .auth-card { width: 100%; max-width: 400px; animation: fadeUp 0.6s ease-out; }
+    
+    h2 { font-size: 1.8rem; margin-bottom: 8px; }
+    .subtitle { color: var(--text-muted); margin-bottom: 32px; display: block; }
+    
+    label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 8px; color: var(--text-muted); }
+    input { width: 100%; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; margin-bottom: 20px; outline: none; transition: 0.2s; background: var(--bg); }
+    input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); background: white; }
+    
+    .btn-primary { width: 100%; background: var(--primary); color: white; padding: 14px; border: none; border-radius: 8px; font-weight: 600; font-size: 1rem; cursor: pointer; transition: 0.2s; }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25); }
+    
+    .btn-secondary { width: 100%; background: transparent; color: var(--text-muted); padding: 14px; border: 1px solid var(--border); border-radius: 8px; font-weight: 500; margin-top: 12px; cursor: pointer; transition: 0.2s; }
+    .btn-secondary:hover { background: var(--bg); color: var(--text); border-color: var(--text-muted); }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    
+    @media (max-width: 900px) {
+      body { grid-template-columns: 1fr; }
+      .hero-section { display: none; }
+    }
+  </style>
 </head>
 <body>
+  <div class="hero-section">
+    <div class="hero-bg-pattern"></div>
+    <div class="hero-content">
+      <h1>Build habits<br>that actually stick.</h1>
+      <p>Join thousands of users tracking their daily progress, building streaks, and mastering their productivity with Focus & Flow.</p>
+    </div>
+  </div>
 
-<h2>Login</h2>
-<input id="email" placeholder="Email">
-<input id="password" type="password" placeholder="Password">
-<button onclick="login()">Login</button>
-<button onclick="signup()">Sign Up</button>
+  <div class="form-section">
+    <div class="auth-card">
+      <h2>Welcome back</h2>
+      <span class="subtitle">Enter your details to access your dashboard.</span>
+
+      <label for="email">Email Address</label>
+      <input id="email" type="email" placeholder="name@company.com" required>
+
+      <label for="password">Password</label>
+      <input id="password" type="password" placeholder="••••••••" required>
+
+      <button id="loginBtn" class="btn-primary">Sign In</button>
+      <button id="signupBtn" class="btn-secondary">Create Account</button>
+      
+      <p style="text-align:center; margin-top: 24px; font-size: 12px; color: var(--text-muted);">
+        Secure & Offline-ready technology.
+      </p>
+    </div>
+  </div>
 
 <script type="module" src="js/auth.js"></script>
 </body>
